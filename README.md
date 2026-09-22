@@ -29,7 +29,7 @@ Talk to Gemini in real time (full duplex, barge-in supported), with a live trans
 
 ## Install (manual)
 
-**1. Desktop UI** — copy `plugin.js` into your desktop-plugins folder:
+**1. Desktop UI** — copy `desktop/plugin.js` from this repo into your desktop-plugins folder:
 
 ```
 ~/.hermes/desktop-plugins/gemini-live-bridge/plugin.js      # Windows: C:\Users\<you>\AppData\Local\hermes\desktop-plugins\...
