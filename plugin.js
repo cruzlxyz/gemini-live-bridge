@@ -60,7 +60,7 @@ function createLive(ctx) {
   const models = atom([])        // candidates from /config (short names)
   const chosen = atom('')        // selected model; '' migrates to first candidate
   const pickerOpen = atom(false)
-  const thinkLevel = atom('low') // hanya relevan utk extended-thinking
+  const thinkLevel = atom('low') // only relevant for extended-thinking
   const thinkOpen = atom(false)
   const usage = atom('') // session token meter, e.g. '23.4k'
   const log = atom([])
@@ -312,7 +312,7 @@ function Minibar({ live }) {
               })
             ] }),
             jsx('div', { className: 'gemini-live-error', role: 'status', children:
-              message || (tail.length ? tail.map((row, i) => jsxs('div', { children: [row.role === 'you' ? 'lu: ' : row.role === 'gemini' ? 'gemini: ' : '', row.text] }, i)) : '')
+              message || (tail.length ? tail.map((row, i) => jsxs('div', { children: [row.role === 'you' ? 'you: ' : row.role === 'gemini' ? 'gemini: ' : '', row.text] }, i)) : '')
             }),
             jsx('div', { className: 'gemini-live-log', 'aria-label': 'diagnostics', children:
               logs.map((row, i) => jsxs('div', { children: [row.t, '  ', row.msg] }, i))
