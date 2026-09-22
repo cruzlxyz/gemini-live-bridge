@@ -1,5 +1,5 @@
 name: gemini-live-bridge
-version: 1.0.5
+version: 1.0.6
 description: Realtime duplex voice chat with the Gemini Live API — a status-bar minibar for the Hermes desktop app.
 manifest_version: 1
 kind: backend
