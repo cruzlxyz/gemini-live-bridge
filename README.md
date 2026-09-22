@@ -1,3 +1,5 @@
+<p align="center"><img src="docs/banner.png" alt="Gemini Live — duplex voice minibar for Hermes desktop" width="720"></p>
+
 # Gemini Live Bridge
 
 **Realtime duplex voice chat with the Gemini Live API — as a status-bar minibar for the Hermes desktop app.**
