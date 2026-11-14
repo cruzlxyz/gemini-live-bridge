@@ -1,175 +1,150 @@
-<p align="center"><img src="docs/banner.png" alt="Gemini Live — duplex voice minibar for Hermes desktop" width="720"></p>
+<p align="center"><img src="assets/cover.jpg" alt="Livetalk — talk with your Hermes agent" width="720"></p>
 
-# Gemini Live Bridge
+# Livetalk
 
-**Realtime duplex voice chat with the Gemini Live API — as a status-bar minibar for the Hermes desktop app.**
+<p align="center"><img src="assets/livetalk.svg" alt="The Livetalk face-ghost — a liquid blob that blinks and speaks" width="150"></p>
 
-Talk to Gemini in real time (full duplex, barge-in supported), with a live transcript, a model catalog, thinking-level control, a session token meter, and transparent auto-resume — all from one small popover in your status bar.
+<p align="center"><b>Talk to it. It talks back — and when real work is needed, the Hermes agent does it.</b></p>
+
+<p align="center"><a href="docs/demo.html">✨ See the face-ghost move (live demo)</a></p>
+
+> **What's Hermes?** [Hermes Agent](https://github.com/NousResearch/hermes-agent) is the open-source AI agent by [Nous Research](https://nousresearch.com) that lives in your desktop app — it chats, runs tools, browses the web, remembers things, and automates your work. This plugin gives it a voice you can talk to.
+
+A composer mini-bar for the Hermes desktop app: a full-duplex Livetalk voice session in one small popover. Small talk is answered by the voice model itself; anything that needs facts, your machine, or tools is handed to a dedicated Hermes agent session, and the answer is spoken back to you.
 
 > The renderer never talks to Google. A local Python backend owns the upstream WebSocket and your API key; the desktop UI only exchanges data with `localhost`.
 
 ---
 
-## Features
+## What you get
 
-- **Realtime duplex voice** — stream mic audio in, stream spoken answers out. Interrupt Gemini mid-sentence; it listens like a phone call.
-- **Live transcript** — both sides rendered as flowing sentences (streaming fragments merged per speaker).
-- **Model catalog** — every Live-capable model on your key, listed automatically via `ListModels`, in a fixed order (`gemini-3.8-live` first). Switch models from a dropdown.
-- **Thinking level** — dedicated low/high picker for `gemini-3.8-live-extended-thinking` (the only config that model needs).
-- **Session token meter** — real `usageMetadata` from Google, displayed as `12.3k tok`, reset per session. Handy on the free tier.
-- **Session resumption + auto-redial** — if the connection drops (Wi-Fi hiccup), the backend reconnects itself using Google's session-resumption handle, keeping context. Manual stop never reconnects.
-- **Secure by design** — the API key lives in `~/.hermes/.env` and never leaves the backend process. The UI gets short-lived single-use ephemeral tokens (the officially recommended browser flow).
+- **Voice ↔ Hermes delegation** — the voice model routes each turn: greetings and general knowledge it answers itself; anything needing live data, your machine, or tools is delegated via an `talk` call to a dedicated **"Livetalk" agent session** (auto-created, persistent memory), and the agent's final answer is spoken aloud.
+- **Full-duplex + barge-in** — talk over Gemini mid-sentence. The client detects your voice while playback is live and cuts the queue immediately; the server-side interruption path handles the mid-generation case.
+- **Liquid blob indicator** — the status bar shows one animated blob instead of text: violet and swelling with your voice while listening, green and pulsing with Gemini's actual spoken output while answering, spinning teal while the agent works. Click it to start/stop.
+- **Native settings page** — Settings → Plugins → livetalk: model, primary/second transcription language (every BCP-47 language the Live API documents), SMART transcription, spoken-answer detail, transcript/log visibility. Rendered and persisted by Hermes itself (`config_schema`).
+- **Live transcript** — both sides rendered as flowing sentences (streaming fragments merged per speaker). Toggleable.
+- **Session token meter** — real `usageMetadata` from Google, shown as `12.3k tok`, reset per session. Handy on the free tier.
+- **Session resumption + auto-redial** — a network drop reconnects itself with the resumption handle, keeping context. A manual stop never reconnects.
+- **Secure by design** — the API key lives in `~/.hermes/.env` and never leaves the backend process. The UI gets short-lived single-use ephemeral tokens (Google's recommended browser flow).
 
 ## Requirements
 
-- **Hermes desktop app** (plugin SDK surface) with desktop-plugin support enabled
-- A **Google AI Studio API key** with Live API access — [get one here](https://aistudio.google.com/apikey)
-- The key must be present as `GOOGLE_API_KEY` (or `GEMINI_API_KEY`) in `~/.hermes/.env`
-- `websockets` Python package inside Hermes' environment (installed by default)
+| | |
+|---|---|
+| **Hermes** | Desktop app with plugin support; **tested on v0.23.1** (`requires_hermes: >=0.22.0`). The native settings page needs a build with `registerSettingsPage` (~0.23+); older builds run everything else and simply hide that page. |
+| **API key** | A Google AI Studio key with Live API access — [get one](https://aistudio.google.com/apikey), set as `GOOGLE_API_KEY` in `~/.hermes/.env` |
+| **Python** | Nothing extra — the backend uses only Hermes-bundled packages (`fastapi`, `websockets`) |
+| **Hardware** | Microphone + speakers/headphones (headphones strongly recommended — see Tips) |
+| **OS** | Windows / macOS / Linux desktop |
 
-## Install (manual)
+## Install
 
-**1. Desktop UI** — copy `desktop/plugin.js` from this repo into your desktop-plugins folder:
-
-```
-~/.hermes/desktop-plugins/gemini-live-bridge/plugin.js      # Windows: C:\Users\<you>\AppData\Local\hermes\desktop-plugins\...
-```
-
-**2. Backend** — copy the backend into your plugins folder:
-
-```
-~/.hermes/plugins/gemini-live-bridge/manifest.json
-~/.hermes/plugins/gemini-live-bridge/dashboard/plugin_api.py
-```
-
-**3. Enable it** in `~/.hermes/config.yaml` (append, don't replace, the list!):
-
-```yaml
-plugins:
-  enabled:
-    - disk-cleanup
-    - gemini-live-bridge        # <- add this line
-```
-
-or via CLI:
+From your Hermes environment:
 
 ```bash
-hermes config set plugins.enabled '["disk-cleanup","gemini-live-bridge"]'
+hermes plugins install cruzlxyz/livetalk
 ```
 
-**4. API key** — put your key in `~/.hermes/.env`:
+This installs both halves (the Python dashboard backend and the desktop mini-bar), then restart the desktop app once.
+
+**One-time setup** — put your Gemini API key in `~/.hermes/.env`:
 
 ```
 GOOGLE_API_KEY=AIza...
 ```
 
-**5. Restart the Hermes desktop app** (backend changes need a restart; UI changes hot-reload via ⌘K → *Reload desktop plugins*).
-
-### Install from the Hermes plugin catalog (planned)
-
-Once admitted to the official catalog, this becomes:
-
-```bash
-hermes plugins install gemini-live-bridge
-```
-
-See [Hermes Plugin Catalog terms](#hermes-plugin-catalog-terms--compliance) below for the admission policy this plugin follows.
+Then click the blob in the status bar and just talk.
 
 ## Usage
 
-1. Click **Gemini Live** in the desktop status bar (right side).
-2. Press **▶** — the backend dials Google (token + Connect) and shows `LIVE` when the mic is streaming.
-3. Just talk. Gemini's answer plays through your speakers; the transcript flows in the panel.
-4. Press **⏸** to stop.
+- **Click the blob** to start; click again to stop.
+- **Just talk.** Examples of how turns route:
 
-**Panel controls:**
-
-| Control | What it does |
+| You say | What happens |
 |---|---|
-| `▶ / ⏸` | Start / stop the voice session |
-| Model dropdown | Pick any Live-capable model on your key; fallback order preserved on failure |
-| `Thinking: low / high` | Only shown for `gemini-3.8-live-extended-thinking` — reasoning depth |
-| Token counter | Session token usage from Google's `usageMetadata` |
-| Diagnostics log | Timestamped backend events (`dialing…`, `LIVE`, errors) |
+| "What is Hermes anyway?" | The voice model answers itself — general knowledge |
+| "What's the BTC price right now?" | Delegated — the agent searches the live web, the answer is spoken |
+| "Check how many files are in my Downloads folder" | Delegated — the agent runs tools on your machine |
+| "Remind me at 8 tomorrow" | Delegated — memory/scheduling |
+| "Wait, how many percent did you say?" | Answered from context — no re-search |
 
-**Tips**
+- **Blob colors**: violet = listening · green = Gemini speaking · spinning teal = Hermes is on it · gray = idle.
 
-- Use **headphones** — without them the mic can re-capture Gemini's voice (echo barge-in), which is the #1 cause of chaotic replies in every voice app.
-- If a model goes **silent** (setup OK but no answer), that's a known Google-side "bursty" behavior — press Stop → Start, or pick the next model. The backend already tries candidates in order.
-- `gemini-3.8-live-extended-thinking` + voice input can hit Google-side generation errors ("mohon maaf…") more often than plain `gemini-3.8-live`. Text-style patience recommended.
-- Audio sessions are capped at **15 minutes** by Google — the token meter and log make that visible.
+<p align="center"><img src="assets/blob.svg" width="600" alt="The blob's three states: listening (violet), speaking (green, echoing), thinking (teal, spinning ring)"></p>
 
-## Local backend endpoints
+- **Context first**: follow-up questions are answered from what was already said or already worked out — no repeated searches.
+- Use **headphones**: without them the microphone re-captures Gemini's voice, which is the #1 cause of chaotic replies in every voice app.
+- Google caps Live audio sessions (~15 min); the backend auto-resumes on network drops.
 
-All routes are mounted by the Hermes plugin loader under
-`/api/plugins/gemini-live-bridge/` on the desktop's local backend — no key material in any response.
+## Settings (Settings → Plugins → livetalk)
+
+| Setting | Values | Default |
+|---|---|---|
+| Live model | every Live-capable model on your key | `gemini-3.8-live` |
+| Primary language | any documented Live API language (BCP-47) | `id-ID` |
+| Second language | `none` or any language — covers mid-sentence code-switching | `en-US` |
+| Smart transcription | on/off — removes fillers, fixes false starts | on |
+| Spoken answers | `full` (every key fact) / `brief` (2–4 sentences) | `full` |
+| Show transcript | on/off (popover conversation text) | on |
+| Show diagnostic log | on/off (timestamped event log) | on |
+
+## What this plugin touches
+
+- **Dashboard API** (`dashboard/plugin_api.py`): FastAPI routes under `/api/plugins/livetalk/*` — session proxy, delegation queue, settings reads.
+- **Desktop surface** (`desktop/plugin.js`): one composer blob + popover (blob control, token counter, transcript, log).
+- **One agent session**: creates and reuses a Hermes session titled "Livetalk" for all delegations. No agent tools, no hooks, no middleware, no core overrides.
+
+### API routes
 
 | Method | Route | Purpose |
 |---|---|---|
-| `GET` | `/config` | `{ model, candidates[], resumable }` — Live-capable models from `ListModels`, filtered (no STT/translate), fixed order |
-| `POST` | `/start` | Dial Google: mint ephemeral token → connect → `setupComplete`. Body: `{ model?, thinkingLevel?, resume? }`. Returns `{ ok, model, resumed }` |
-| `POST` | `/audio` | Forward one mic chunk upstream. Body: `{ data: <base64 PCM16 mono 16kHz> }` |
-| `GET` | `/poll` | Incremental session state: `{ session, model, error, interaction, usage, input[], output[], audio[], in_total, out_total, a_total, resumed }` — pass `?in_offset=&out_offset=&a_offset=` to get only new items |
+| `GET` | `/config` | `{ model, candidates[], prefs }` — model catalog + current settings |
+| `POST` | `/start` | Dial Google: mint ephemeral token → connect → `setupComplete`. Returns `{ ok, model, resumed, speak }` |
+| `POST` | `/audio` | Forward one mic chunk upstream (`{ data: <base64 PCM16 mono 16kHz> }`) |
+| `GET` | `/poll` | Incremental state: transcriptions, audio, delegations, usage, barge-in counter, settings echo — all offset-based |
+| `POST` | `/tool_response` | Answer a queued `talk` delegation; forwarded upstream as the tool response |
 | `POST` | `/close` | Tear down the session (blocks auto-redial) |
-| `GET` | `/status` | `{ session, model, api_key_configured }` — health check |
+| `GET` | `/status` | Liveness probe |
 
-Example:
+## How it works
 
-```bash
-curl http://127.0.0.1:<desktop-port>/api/plugins/gemini-live-bridge/status
-# {"session":"idle","model":"","api_key_configured":true}
-```
+Two flows, one router — the voice model itself decides per turn (guided by its persona):
 
-## Architecture
+1. **Small talk / general knowledge** → answered directly over the audio channel.
+2. **Real work** → the model emits an `talk(request)` tool call → the renderer submits it to the dedicated agent session (`prompt.submit`, surface `voice-live`, with the recent spoken context) → polls the submission receipt until it settles → the agent's `final_response` is fed back as the tool response → spoken aloud.
+
+Full details and diagrams: [docs/WORKFLOW.md](docs/WORKFLOW.md).
 
 ```
 ┌─ Hermes desktop (Electron renderer) ────────────┐
-│  status-bar minibar + popover (plugin.js)       │
+│  composer blob + popover (plugin.js)            │
 │  mic capture (WebAudio PCM16/16k)               │
-│  playback queue (WebAudio PCM16/24k)            │
+│  playback + output level analyser (24k)         │
+│  delegation dispatch + receipt polling          │
 └──────────────┬──────────────────────────────────┘
                │ ctx.rest() → localhost only
 ┌──────────────▼──────────────────────────────────┐
 │  Backend (plugin_api.py, FastAPI router)        │
 │  • mints 1-use ephemeral tokens (30 min TTL)    │
 │  • owns the upstream Live WebSocket             │
-│  • auto-redial via session-resumption handle    │
-│  • API key stays in this process                │
-└──────────────┬──────────────────────────────────┘
-               │ wss://…BidiGenerateContentConstrained?access_token=…
-        Gemini Live API (v1alpha)
+│  • queues talk calls, forwards answers    │
+│  • reads the official plugin settings store     │
+└───────┬────────────────────────┬────────────────┘
+        │ wss://…Constrained     │ prompt.submit / prompt.receipt
+        ▼                        ▼
+   Gemini Live API        Hermes agent session
+   (v1alpha)              "Livetalk" (full toolset)
 ```
 
-Why the proxy? The Live API's plain `?key=` endpoint is documented as server-to-server only; browser contexts (like the Electron renderer) must use ephemeral tokens, and direct renderer→Google sockets proved flaky (Chromium headers/proxies). The backend owns the upstream connection and has been the reliably verified path end-to-end.
+## Compatibility notes
 
-## Hermes Plugin Catalog terms & compliance
+- **`gemini-3.8-live-extended-thinking`** chats with deep reasoning but **cannot delegate**: per the official thinking guide its tool calls are async-only (`NON_BLOCKING`), and the plugin implements that contract — but the server currently never emits the call (verified across endpoints, API versions, and thinking levels as of Nov 2026). The picker labels it honestly; the async protocol is already wired for when that changes.
+- **Native settings page** needs a Hermes build with plugin settings pages (~0.23+). Older builds: everything works, the page just does not appear.
+- Transcription language hints follow the [Live API transcription docs](https://aistudio.google.com/docs/live-api/live-transcribe) (`languageCodes`, SMART mode, custom vocabulary).
 
-This plugin targets the [official Hermes Plugin Catalog](https://github.com/NousResearch/hermes-agent/tree/main/plugin-catalog) (`category: voice`, `tier: community`). The catalog's admission policy — and how this plugin complies:
+## Privacy
 
-| # | Catalog rule | This plugin |
-|---|---|---|
-| 1 | Entries enter **only** via a reviewed PR to `NousResearch/hermes-agent` (no self-serve registry) | Will be submitted as a PR by the repo owner |
-| 2 | **Exact 40-hex SHA pin** — installs check out the reviewed commit | Tagged release provides the pin |
-| 3 | **No self-updating code** (updates happen via SHA-bump PRs + `hermes plugins update`) | No updater, no remote loaders |
-| 4 | Version bumps = new reviewed PRs | Accepted |
-| 5 | Submission by the **repo owner** | Submitted by [@cruzlxyz](https://github.com/cruzlxyz) |
-| 6 | **Declared capabilities must match reality** — verified by `hermes plugins validate` | `capabilities: requires_env: [GOOGLE_API_KEY]`; registers no tools/hooks/middleware |
-| 7 | **Security scan at admission** (`dangerous` fails) | No eval, no subprocess, no credential store access; key stays in the host process env |
-| 8 | **Desktop plugins stay inside the SDK surface** — only `@hermes/plugin-sdk` + `react` imports; no `eval`/`new Function`, no prototype patching, no dynamic `import()`, no script-tag injection, no app-store reach-ins | Compliant: imports are `@hermes/plugin-sdk` and `react/jsx-runtime` only |
-
-**For users, in plain words:** installing this plugin from the catalog gives you exactly the reviewed code; the plugin can only do what the Hermes plugin SDK allows; your Google API key is your own, stored in your own `.env`, and is never shipped, synced, or displayed by the plugin.
-
-**Privacy:** transcripts and audio exist only in memory while a session runs; nothing is written to disk. (On Google's side, the free-tier data-use policy applies to the API key owner.)
-
-## Troubleshooting
-
-| Symptom | Cause | Fix |
-|---|---|---|
-| `GOOGLE_API_KEY not set` | Key missing in `~/.hermes/.env` | Add it, restart Hermes |
-| `setup timeout` / `all candidates failed` | Google-side burstiness or key without Live access | Retry; check model availability in [AI Studio](https://aistudio.google.com) |
-| Gemini answers then apologizes repeatedly | Server-side audio-generation error, common on extended-thinking + voice input | Switch to `gemini-3.8-live`, or lower thinking level |
-| Answers choppy | Audio chunks overlapped (fixed in ≥1.0.1) / no headphones | Update; use headphones to avoid echo barge-in |
-| Session dies at 15:00 | Google's audio-session limit | Start again (resumption keeps context when the drop is network-side) |
+Transcripts and audio exist only in memory while a session runs; the plugin writes no transcripts to disk. Your API key never leaves the backend process. On Google's side, the API key owner's data-use policy applies.
 
 ## License
 

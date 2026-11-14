@@ -1,0 +1,60 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 240" width="600" height="240">
+  <defs>
+    <radialGradient id="gListen" cx="35%" cy="35%">
+      <stop offset="0%" stop-color="#a594ff"/><stop offset="100%" stop-color="#5b45e0"/>
+    </radialGradient>
+    <radialGradient id="gSpeak" cx="35%" cy="35%">
+      <stop offset="0%" stop-color="#7dffb2"/><stop offset="100%" stop-color="#17a163"/>
+    </radialGradient>
+    <radialGradient id="gThink" cx="35%" cy="35%">
+      <stop offset="0%" stop-color="#4fd1c5"/><stop offset="100%" stop-color="#2b8f8a"/>
+    </radialGradient>
+  </defs>
+
+  <!-- panels -->
+  <rect x="4" y="4" width="192" height="232" rx="12" fill="#161b22"/>
+  <rect x="204" y="4" width="192" height="232" rx="12" fill="#161b22"/>
+  <rect x="404" y="4" width="192" height="232" rx="12" fill="#161b22"/>
+
+  <!-- 1 LISTENING: liquid morph, violet -->
+  <path fill="url(#gListen)">
+    <animate attributeName="d" dur="5s" repeatCount="indefinite" values="
+      M 200 78 C 246 76, 264 102, 262 140 C 260 182, 238 202, 200 200 C 158 198, 138 176, 140 138 C 142 100, 158 80, 200 78 Z;
+      M 200 82 C 238 84, 266 98, 264 142 C 262 180, 242 204, 200 202 C 162 200, 136 178, 138 140 C 140 102, 162 80, 200 82 Z;
+      M 200 80 C 242 78, 262 104, 260 138 C 258 178, 236 202, 198 200 C 160 200, 138 182, 140 142 C 142 102, 160 80, 200 80 Z;
+      M 200 78 C 246 76, 264 102, 262 140 C 260 182, 238 202, 200 200 C 158 198, 138 176, 140 138 C 142 100, 158 80, 200 78 Z"/>
+    <animate attributeName="transform" dur="5s" repeatCount="indefinite"
+      values="rotate(0 200 140);rotate(10 200 140);rotate(-8 200 140);rotate(0 200 140)"/>
+  </path>
+  <text x="200" y="222" text-anchor="middle" font-family="sans-serif" font-size="13" fill="#8b949e">listening — violet</text>
+
+  <!-- 2 SPEAKING: green + ping ring -->
+  <circle cx="300" cy="140" r="24" fill="none" stroke="#3fb96f" stroke-width="2">
+    <animate attributeName="r" values="26;44" dur="1.2s" repeatCount="indefinite"/>
+    <animate attributeName="opacity" values=".8;0" dur="1.2s" repeatCount="indefinite"/>
+  </circle>
+  <circle cx="300" cy="140" r="24" fill="none" stroke="#3fb96f" stroke-width="2">
+    <animate attributeName="r" values="26;44" dur="1.2s" begin=".6s" repeatCount="indefinite"/>
+    <animate attributeName="opacity" values=".8;0" dur="1.2s" begin=".6s" repeatCount="indefinite"/>
+  </circle>
+  <path fill="url(#gSpeak)">
+    <animate attributeName="d" dur="1.6s" repeatCount="indefinite" values="
+      M 300 96 C 338 94, 356 116, 354 142 C 352 172, 330 190, 300 188 C 268 186, 246 170, 248 140 C 250 112, 266 98, 300 96 Z;
+      M 300 90 C 330 92, 358 110, 356 144 C 354 174, 334 192, 300 190 C 270 188, 244 174, 246 142 C 248 112, 270 88, 300 90 Z;
+      M 300 96 C 338 94, 356 116, 354 142 C 352 172, 330 190, 300 188 C 268 186, 246 170, 248 140 C 250 112, 266 98, 300 96 Z"/>
+  </path>
+  <text x="300" y="222" text-anchor="middle" font-family="sans-serif" font-size="13" fill="#8b949e">speaking — green</text>
+
+  <!-- 3 THINKING: teal + spinning ring -->
+  <g transform="rotate(0 500 140)">
+    <animateTransform attributeName="transform" type="rotate" from="0 500 140" to="360 500 140" dur="1.4s" repeatCount="indefinite"/>
+    <circle cx="500" cy="140" r="40" fill="none" stroke="#4fd1c5" stroke-width="3" stroke-dasharray="10 14" stroke-linecap="round"/>
+  </g>
+  <path fill="url(#gThink)">
+    <animate attributeName="d" dur="2.4s" repeatCount="indefinite" values="
+      M 500 100 C 536 98, 554 120, 552 144 C 550 172, 528 188, 500 186 C 470 184, 448 170, 450 142 C 452 114, 468 102, 500 100 Z;
+      M 500 94 C 528 96, 556 114, 554 146 C 552 174, 532 190, 500 188 C 472 186, 446 172, 448 140 C 450 112, 472 92, 500 94 Z;
+      M 500 100 C 536 98, 554 120, 552 144 C 550 172, 528 188, 500 186 C 470 184, 448 170, 450 142 C 452 114, 468 102, 500 100 Z"/>
+  </path>
+  <text x="500" y="222" text-anchor="middle" font-family="sans-serif" font-size="13" fill="#8b949e">thinking — agent on it</text>
+</svg>

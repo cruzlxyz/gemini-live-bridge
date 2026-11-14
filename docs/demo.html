@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Livetalk — live demo</title>
+<style>
+  :root{--fg:#e8eaf2;--mut:#8b91a8;--bd:rgba(255,255,255,.09)}
+  *{box-sizing:border-box;margin:0}
+  body{background:#0a0a10;color:var(--fg);font:14px/1.5 ui-sans-serif,system-ui;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;gap:18px;padding:24px}
+  h1{font-size:16px;font-weight:600}
+  .stage{position:relative;width:min(560px,92vw);height:340px;border-radius:14px;border:1px solid var(--bd);background:radial-gradient(120% 120% at 50% 40%, #131322 0%, #0a0a10 70%);overflow:hidden}
+  canvas{position:absolute;inset:0;width:100%;height:100%}
+  .blob{position:absolute;left:50%;top:50%;translate:-50% -50%;width:110px;height:110px;border-radius:44% 56% 52% 48%/48% 44% 56% 52%;
+    background:linear-gradient(135deg,#8f7bff,#4fd1c5);box-shadow:0 0 40px rgba(124,108,255,.45);
+    animation:morph 9s cubic-bezier(.45,.05,.55,.95) infinite}
+  @keyframes morph{0%,100%{border-radius:46% 54% 52% 48%/48% 46% 54% 52%}25%{border-radius:54% 46% 44% 56%/50% 56% 44% 50%}50%{border-radius:48% 52% 58% 42%/44% 48% 52% 56%}75%{border-radius:52% 48% 46% 54%/54% 44% 56% 46%}}
+  .eyes{position:absolute;inset:0}
+  .eye{position:absolute;top:33%;width:8%;height:14%;border-radius:50%;background:rgba(12,12,22,.88);transition:height .09s ease,top .09s ease}
+  .eye.l{left:30%}.eye.r{right:30%}
+  .blob.blink .eye{height:2.5%;top:40%}
+  .mouth{position:absolute;left:50%;top:59%;translate:-50% 0;width:26%;height:10%;border-radius:2px;background:rgba(12,12,22,.8);transform-origin:center;transition:opacity .25s ease}
+  .status{position:absolute;left:0;right:0;bottom:14px;display:flex;justify-content:center;gap:16px;font-size:12px;color:var(--mut)}
+  .status b{color:var(--fg);font-weight:600}
+  .hint{color:var(--mut);font-size:12px}
+</style>
+</head>
+<body>
+<h1>🎙️ Livetalk — the face-ghost, live</h1>
+<div class="stage" id="stage">
+  <canvas id="cv"></canvas>
+  <div class="blob" id="blob">
+    <div class="eyes"><div class="eye l"></div><div class="eye r"></div><div class="mouth" id="mouth"></div></div>
+  </div>
+  <div class="status"><b id="mood">Listening…</b><span id="meta">simulated session</span></div>
+</div>
+<div class="hint">Click the stage to pause / resume the simulation — the real thing listens to your microphone.</div>
+<script>
+const cv = document.getElementById('cv'), st = document.getElementById('stage'), blob = document.getElementById('blob'), mouth = document.getElementById('mouth')
+const ctx = cv.getContext('2d')
+let W, H, raf, paused = false, t = 0, last = performance.now()
+const stars = Array.from({length: 80}, () => ({fx: Math.random(), fy: Math.random(), d: .3 + Math.random()*.7, tw: Math.random()*6.28, s: .6 + Math.random()*1.3}))
+function size(){ const d = devicePixelRatio||1; W = st.clientWidth; H = st.clientHeight; cv.width = W*d; cv.height = H*d; ctx.setTransform(d,0,0,d,0,0) }
+new ResizeObserver(size).observe(st); size()
+let blinkAt = 0, phase = 0
+function sim(){ phase += .016; const v = (Math.sin(phase*3.1)+Math.sin(phase*5.7)+Math.sin(phase*8.3))/3; return Math.max(0, Math.min(1, .35 + v*.65)) }
+const speaking = () => Math.sin(phase*.7) > .2
+function loop(now){
+  raf = requestAnimationFrame(loop)
+  if (paused) return
+  const dt = Math.min(.05,(now-last)/1000); last = now; t += dt
+  const lv = sim(), spk = speaking()
+  document.getElementById('mood').textContent = spk ? 'Speaking…' : 'Listening…'
+  mouth.style.transform = `scaleY(${.25 + lv*1.5})`
+  mouth.style.opacity = spk ? .9 : 0
+  if (now > blinkAt){ blob.classList.add('blink'); setTimeout(()=>blob.classList.remove('blink'),140); blinkAt = now + 1200 + Math.random()*2600 }
+  ctx.clearRect(0,0,W,H)
+  for (const s of stars){
+    s.fx += dt*.004*s.d; if (s.fx>1) s.fx-=1
+    ctx.fillStyle = `rgba(170,185,235,${(.35+.3*Math.sin(now/1400+s.tw))*s.d})`
+    ctx.beginPath(); ctx.arc(s.fx*W, s.fy*H, s.s*s.d, 0, 7); ctx.fill()
+  }
+  const cx = W/2, cy = H/2 - 14
+  for (let i=0;i<40;i++){
+    const a = i/40*Math.PI*2 + now/6000
+    const w = .45+.3*Math.sin(now/520+i*1.7)+.25*Math.sin(now/310+i*2.9)
+    const len = (spk?6:8) + lv*(spk?10:44)*w
+    ctx.strokeStyle = spk?`rgba(125,255,178,${.1+lv*.35})`:`rgba(143,123,255,${.3+lv*.65})`
+    ctx.lineWidth = spk?1.6:2.6; ctx.lineCap='round'
+    ctx.beginPath(); ctx.moveTo(cx+Math.cos(a)*70,cy+Math.sin(a)*70); ctx.lineTo(cx+Math.cos(a)*(70+len),cy+Math.sin(a)*(70+len)); ctx.stroke()
+  }
+}
+st.addEventListener('click', () => { paused = !paused; last = performance.now() })
+raf = requestAnimationFrame(loop)
+</script>
+</body>
+</html>
