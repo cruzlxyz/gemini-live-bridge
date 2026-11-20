@@ -25,14 +25,14 @@ A composer mini-bar for the Hermes desktop app: a full-duplex Livetalk voice ses
 - **Live transcript** — both sides rendered as flowing sentences (streaming fragments merged per speaker). Toggleable.
 - **Session token meter** — real `usageMetadata` from Google, shown as `12.3k tok`, reset per session. Handy on the free tier.
 - **Session resumption + auto-redial** — a network drop reconnects itself with the resumption handle, keeping context. A manual stop never reconnects.
-- **Secure by design** — the API key lives in `~/.hermes/.env` and never leaves the backend process. The UI gets short-lived single-use ephemeral tokens (Google's recommended browser flow).
+- **Secure by design** — the API key lives in your Hermes `.env` (`~/.hermes/.env`, or `<profile>/.env` under `~/.hermes/profiles/` when you run a named profile) and never leaves the backend process. The UI gets short-lived single-use ephemeral tokens (Google's recommended browser flow).
 
 ## Requirements
 
 | | |
 |---|---|
 | **Hermes** | Desktop app with plugin support; **tested on v0.23.1** (`requires_hermes: >=0.22.0`). The native settings page needs a build with `registerSettingsPage` (~0.23+); older builds run everything else and simply hide that page. |
-| **API key** | A Google AI Studio key with Live API access — [get one](https://aistudio.google.com/apikey), set as `GOOGLE_API_KEY` in `~/.hermes/.env` |
+| **API key** | A Google AI Studio key with Live API access — [get one](https://aistudio.google.com/apikey), set as `GOOGLE_API_KEY` in your Hermes `.env` — `~/.hermes/.env`, or `~/.hermes/profiles/<name>/.env` for a named profile |
 | **Python** | Nothing extra — the backend uses only Hermes-bundled packages (`fastapi`, `websockets`) |
 | **Hardware** | Microphone + speakers/headphones (headphones strongly recommended — see Tips) |
 | **OS** | Windows / macOS / Linux desktop |
@@ -47,11 +47,13 @@ hermes plugins install cruzlxyz/livetalk
 
 This installs both halves (the Python dashboard backend and the desktop mini-bar), then restart the desktop app once.
 
-**One-time setup** — put your Gemini API key in `~/.hermes/.env`:
+**One-time setup** — put your Gemini API key in your Hermes `.env`:
 
 ```
 GOOGLE_API_KEY=AIza...
 ```
+
+That file is `~/.hermes/.env`, or `~/.hermes/profiles/<name>/.env` when you run a named Hermes profile (the Providers page in the Hermes dashboard writes it there). The backend reads the process environment first and falls back to both files, so either location works.
 
 Then click the blob in the status bar and just talk.
 
