@@ -242,8 +242,58 @@ _state: dict = {
 }
 
 
+_ENV_KEYS = ("GOOGLE_API_KEY", "GEMINI_API_KEY")
+
+
+def _env_files() -> list[str]:
+    """``.env`` files to consult, in order: ``$HERMES_HOME``, this plugin's own Hermes
+    home (``<home>/plugins/<name>/dashboard/`` → ``<home>``), then ``~/.hermes``."""
+    home = os.path.normpath(os.path.join(_DIR, os.pardir, os.pardir, os.pardir))
+    roots = (os.environ.get("HERMES_HOME"), home, os.path.expanduser("~/.hermes"))
+    return list(dict.fromkeys(os.path.join(r, ".env") for r in roots if r))
+
+
+def _read_dotenv(path: str) -> dict[str, str]:
+    """Minimal ``.env`` reader: one ``KEY=VALUE`` per line, ``#`` comments, optional
+    ``export`` prefix and quotes. Stdlib only, same tolerance as python-dotenv."""
+    values: dict[str, str] = {}
+    try:
+        with open(path, encoding="utf-8", errors="replace") as fh:
+            for raw in fh:
+                line = raw.strip()
+                if not line or line.startswith("#") or "=" not in line:
+                    continue
+                key, _, value = line.partition("=")
+                key = key.strip()
+                if key.startswith("export "):
+                    key = key[7:].strip()
+                values[key] = value.strip().strip('"').strip("'")
+    except OSError:
+        pass
+    return values
+
+
 def _api_key() -> str:
-    return os.environ.get("GOOGLE_API_KEY", "") or os.environ.get("GEMINI_API_KEY", "")
+    """The Google API key: the process environment first, then Hermes' ``.env`` files.
+
+    The environment alone is not enough. Hermes loads only the *launch* home's
+    ``.env`` into ``os.environ``; a named profile's ``.env``
+    (``~/.hermes/profiles/<name>/.env``) deliberately stays out of the process
+    environment — and that is exactly where Hermes' Providers page writes the key.
+    Falling back to the files keeps the plugin working under a profile without
+    asking anyone to move or duplicate their key.
+    """
+    for name in _ENV_KEYS:
+        value = (os.environ.get(name) or "").strip()
+        if value:
+            return value
+    for path in _env_files():
+        env = _read_dotenv(path)
+        for name in _ENV_KEYS:
+            value = (env.get(name) or "").strip()
+            if value and not value.startswith("op://"):
+                return value
+    return ""
 
 
 def _mint_token() -> str:
@@ -378,7 +428,8 @@ async def config() -> dict:
 @router.post("/start")
 async def start(body: dict | None = None) -> dict:
     if not _api_key():
-        return {"ok": False, "error": "GOOGLE_API_KEY not set in ~/.hermes/.env"}
+        return {"ok": False, "error": "GOOGLE_API_KEY not set (looked in the environment and in: "
+                                     + ", ".join(_env_files()) + ")"}
     await _cleanup()
     _state.update({"session": None, "ws": None, "model": "", "input": [], "output": [], "audio": [], "error": "", "usage": None, "interaction": "", "delegations": [], "tool_in_flight": None, "interrupted": 0})
     import websockets
