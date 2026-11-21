@@ -8,7 +8,7 @@
  * model-audio chunks and play them via WebAudio.
  */
 
-import { atom, Button, COMPOSER_AREAS, host, Popover, PopoverContent, PopoverTrigger, Tip, useValue } from '@hermes/plugin-sdk'
+import { atom, Button, COMPOSER_AREAS, host, ListRow, Popover, PopoverContent, PopoverTrigger, SegmentedControl, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Tip, ToggleRow, useValue } from '@hermes/plugin-sdk'
 import { useState, useEffect, useRef } from 'react'
 import { jsx, jsxs } from 'react/jsx-runtime'
 
@@ -34,10 +34,7 @@ const VOICE_NOTE_TAIL = {
 }
 const voiceNote = mode => VOICE_NOTE_HEAD + (VOICE_NOTE_TAIL[mode] || VOICE_NOTE_TAIL.full)
 
-// Honest model labels: the extended-thinking variants never fire tool calls on
-// the constrained endpoint (tested live — thinking consumes the turn), so they
-// chat beautifully but cannot delegate. Say so right in the picker.
-const prettyModel = n => n.replace(/^models\//, '') + (n.includes('extended-thinking') ? ' — no delegation' : '')
+const prettyModel = n => n.replace(/^models\//, '')
 
 const CSS = `
 .gemini-live-bar{display:flex;align-items:center;gap:2px;height:100%;color:var(--ui-text-tertiary)}
@@ -225,9 +222,11 @@ function createLive(ctx) {
   let pollTimer = null
   let playHead = 0 // sequential audio queue clock (AudioContext time)
   let activeSrcs = new Set() // scheduled-but-maybe-playing sources (flushable)
+  let micFirstLogged = false
+  let audioFirstLogged = false
   let micQueue = Promise.resolve() // keeps chunk order
   let speakMode = 'full'           // spoken-answer detail, from /start (settings)
-  let off = { i: 0, o: 0, a: 0, d: 0 }   // poll offsets (d = delegations)
+  let off = { i: 0, o: 0, a: 0, d: 0, r: 0 }   // poll offsets (d = delegations, r = recalls)
   let lastInterrupted = 0                // last seen server barge-in count
   let bargeHits = 0                      // consecutive loud mic blocks while playing
   let outAnalyser = null                 // playback-side level (what Gemini speaks)
@@ -256,20 +255,121 @@ function createLive(ctx) {
 
   async function targetSession() {
     if (voiceSessionId) return voiceSessionId
+    // Titles are not reliably persisted (local sessions come back with an empty
+    // display_name), so `session.list {title}` never finds our session and we
+    // used to create a new one on every Start — losing the whole history. The
+    // remembered id is the source of truth; the title lookup stays as fallback.
+    const remembered = ctx.storage.get('voiceSessionId', null)
+    if (remembered) {
+      try {
+        await host.request('session.history', { session_id: remembered })
+        voiceSessionId = remembered
+        addLog(`reusing session (${remembered})`)
+        return remembered
+      } catch { /* gone — find or create below */ }
+    }
     try {
-      const found = await host.request('session.list', { title: LIVE_TITLE, scope: 'stored' })
-      const hit = found?.sessions?.[0]?.session_id || found?.sessions?.[0]?.id
-      if (hit) { voiceSessionId = hit; addLog(`reusing session "${LIVE_TITLE}" (${hit})`); return hit }
+      // Ask for the list WITHOUT a server-side title filter (it can come back
+      // empty even when a titled session exists) and match locally.
+      const found = await host.request('session.list', { scope: 'stored' })
+      const list = found?.sessions ?? []
+      const row = list.find(s => (s.title || s.display_name || '') === LIVE_TITLE)
+      const hit = row ? (row.session_id || row.id) : null
+      if (hit) {
+        voiceSessionId = hit
+        ctx.storage.set('voiceSessionId', hit)
+        addLog(`reusing session "${LIVE_TITLE}" (${hit})`)
+        return hit
+      }
     } catch { /* fall through to create */ }
     try {
       const created = await host.request('session.create', { title: LIVE_TITLE })
       voiceSessionId = created?.session_id || created?.id || null
-      if (voiceSessionId) addLog(`created session "${LIVE_TITLE}" (${voiceSessionId})`)
+      if (voiceSessionId) {
+        ctx.storage.set('voiceSessionId', voiceSessionId)
+        addLog(`created session "${LIVE_TITLE}" (${voiceSessionId})`)
+      }
       return voiceSessionId
     } catch (e) {
       addLog(`session.create failed: ${e?.message || e}`)
       return null
     }
+  }
+
+  // Warm start: hand the voice model the last few messages of the dedicated
+  // 'Livetalk' Hermes session, so it understands prior work instead of waking
+  // up amnesiac. Five messages, text only, capped.
+  async function sessionContext() {
+    try {
+      // Never let a slow gateway stall Start: cap the whole lookup at 3s.
+      const cap = ms => new Promise(res => setTimeout(() => res(null), ms))
+      const res = await Promise.race([cap(3000), (async () => {
+        const sid = await targetSession()
+        if (!sid) return null
+        return await host.request('session.history', { session_id: sid })
+      })()])
+      const msgs = Array.isArray(res?.messages) ? res.messages : []
+      const usable = msgs.filter(m => !m.display_kind && String(m.text || '').trim())
+      const tail = usable.slice(-5)
+      if (!tail.length) return ''
+      const nl = String.fromCharCode(10)
+      const block = tail.map(m => `${m.role === 'user' ? 'User' : 'Hermes'}: ${String(m.text).trim().slice(0, 600)}`)
+        .join(nl)
+      // Topic digest: request + the reply that followed, so the model knows
+      // WHAT was discussed and roughly what came out of it — no tool call
+      // needed for a plain "did we talk about X?" question.
+      const lines = []
+      for (let i = 0; i < usable.length; i++) {
+        const m = usable[i]
+        if (m.role !== 'user') continue
+        const q = String(m.text).trim().replace(/\s+/g, ' ').slice(0, 110)
+        const next = usable[i + 1]
+        const a = next && next.role !== 'user' ? String(next.text).trim().replace(/\s+/g, ' ').slice(0, 140) : ''
+        lines.push('- ' + q + (a ? ' → ' + a : ''))
+      }
+      const topics = lines.slice(-12).join(nl)
+      const full = topics ? block + nl + nl + 'Earlier in this session (topics and what came of them):' + nl + topics : block
+      return full.slice(0, 6000)
+    } catch { return '' }
+  }
+
+  // recall: the voice model asks what happened earlier in THIS Hermes session.
+  // Read-only — no agent run, just a keyword filter over session.history.
+  function recallMatches(msgs, query) {
+    const words = String(query || '').toLowerCase().split(/[^a-z0-9]+/i).filter(w => w.length > 2)
+    const hits = []
+    msgs.forEach((m, i) => {
+      const t = String(m.text || '').trim()
+      if (!t || m.display_kind) return
+      const low = t.toLowerCase()
+      const score = words.reduce((a, w) => a + (low.includes(w) ? 1 : 0), 0)
+      if (score > 0) hits.push({ i, t, score, role: m.role })
+    })
+    hits.sort((a, b) => b.score - a.score || b.i - a.i)
+    return hits.slice(0, 5).sort((a, b) => a.i - b.i)
+  }
+
+  async function handleRecall(r) {
+    addLog(`recall: "${String(r.query || '').slice(0, 50)}"`)
+    let text = 'Nothing about that earlier in this conversation.'
+    try {
+      const sid = await targetSession()
+      if (sid) {
+        const res = await host.request('session.history', { session_id: sid })
+        const msgs = Array.isArray(res?.messages) ? res.messages : []
+        const hits = recallMatches(msgs, r.query)
+        if (hits.length) {
+          const nl = String.fromCharCode(10)
+          const body = hits.map(m => `- ${m.role === 'user' ? 'User' : 'Hermes'}: ${m.t.slice(0, 500)}`)
+            .join(nl).slice(0, 3000)
+          text = `[Recall results for "${String(r.query || '').slice(0, 80)}" — ${hits.length} earlier messages in THIS conversation]`
+            + nl + body + nl
+            + 'Answer the user from these results. Do not claim you have no information about this.'
+          addLog(`recall: ${hits.length} match(es)`)
+        } else addLog('recall: no match')
+      }
+    } catch (e) { addLog(`recall failed: ${e?.message || e}`) }
+    await sendToolResponse(r.id, text)
   }
 
   async function sendToolResponse(id, answer) {
@@ -286,6 +386,7 @@ function createLive(ctx) {
     while (Date.now() < deadline) {
       await new Promise(r => setTimeout(r, 2000))
       if (!inFlight) return null // superseded or disposed
+      if (status.get() !== 'live' && status.get() !== 'connecting') { addLog('voice session ended — stop waiting for the receipt'); return null }
       try {
         const r = await host.request('prompt.receipt', { session_id: sessionId, admission_id: admissionId, include_result: true })
         if (r?.status === 'terminal') {
@@ -300,56 +401,86 @@ function createLive(ctx) {
     return null
   }
 
-  async function handleDelegation(d) {
-    inFlight = d
-    delegating.set(true)
+  // Delegations are QUEUED and answered one at a time. The voice model can
+  // call talk again while a previous delegation is still running; dropping
+  // those calls left the model waiting and the session stalling. A busy
+  // dedicated session ("Conversation already has an active response") is
+  // waited out patiently — long agent runs are normal, and failing fast just
+  // makes the model re-call the tool and flood the session with errors.
+  const dq = []
+  let pumping = false
+
+  async function runDelegation(d) {
     transcript.set([...transcript.get().slice(-80), { role: 'you', text: `🎙️ ${d.request}` }])
     addLog(`delegating to Hermes: ${d.request.slice(0, 60)}`)
     const sessionId = await targetSession()
     if (!sessionId) {
       addLog('no Hermes session available — answering with guidance')
       await sendToolResponse(d.id, 'I could not open a Hermes chat session. Please try again in a moment.')
-      inFlight = null
-      delegating.set(false)
       return
     }
-    try {
-      const receipt = await host.request('prompt.submit', {
-        session_id: sessionId,
-        text: `${voiceNote(speakMode)}\n\n${d.request}`,
-        submission_id: `gemini-live-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-        surface: 'voice-live',
-        voice_context: recentContext(),
-      })
-      const admissionId = receipt?.admission_id
-      if (!admissionId) throw new Error(`no admission id: ${JSON.stringify(receipt ?? {}).slice(0, 80)}`)
-      addLog(`submitted — receipt ${String(admissionId).slice(0, 24)}…`)
-      const answer = await waitAnswer(admissionId, sessionId)
-      if (!inFlight) return
-      inFlight = null
-      delegating.set(false)
-      if (answer) {
-        transcript.set([...transcript.get().slice(-80), { role: 'gemini', text: answer }])
-        addLog(`hermes answered (${answer.length} chars) — speaking`)
-        void sendToolResponse(d.id, answer)
-      } else {
-        addLog('agent returned no answer — telling the voice side')
-        await sendToolResponse(d.id, 'The agent finished but returned no answer. Please ask again.')
+    let receipt = null
+    const deadline = Date.now() + 240000
+    let waits = 0
+    while (Date.now() < deadline) {
+      try {
+        receipt = await host.request('prompt.submit', {
+          session_id: sessionId,
+          text: `${voiceNote(speakMode)}\n\n${d.request}`,
+          submission_id: `gemini-live-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+          surface: 'voice-live',
+          voice_context: recentContext(),
+        })
+        if (receipt?.admission_id) break
+      } catch (e) {
+        const msg = String(e?.message || e)
+        if (!/active response|busy|in progress/i.test(msg)) {
+          addLog(`prompt.submit failed: ${msg}`)
+          await sendToolResponse(d.id, `Hermes could not take the request: ${msg}`)
+          return
+        }
+        if (waits++ % 6 === 0) addLog('session busy — waiting for the running turn to finish')
+        await new Promise(r => setTimeout(r, 5000))
+        continue
       }
-    } catch (e) {
-      addLog(`prompt.submit failed: ${e?.message || e}`)
-      await sendToolResponse(d.id, `Hermes could not take the request: ${e?.message || e}`)
-      inFlight = null
-      delegating.set(false)
+      await new Promise(r => setTimeout(r, 5000))   // no admission id yet — retry shortly
+    }
+    const admissionId = receipt?.admission_id
+    if (!admissionId) {
+      addLog('could not submit — the session stayed busy')
+      await sendToolResponse(d.id, 'The agent is busy with a long task. Please ask again in a moment.')
+      return
+    }
+    addLog(`submitted — receipt ${String(admissionId).slice(0, 24)}…`)
+    const answer = await waitAnswer(admissionId, sessionId)
+    if (answer) {
+      transcript.set([...transcript.get().slice(-80), { role: 'gemini', text: answer }])
+      addLog(`hermes answered (${answer.length} chars) — speaking`)
+      void sendToolResponse(d.id, answer)
+    } else {
+      addLog('agent returned no answer — telling the voice side')
+      await sendToolResponse(d.id, 'The agent finished but returned no answer. Please ask again.')
     }
   }
 
+  async function pump() {
+    if (pumping) return
+    pumping = true
+    try {
+      while (dq.length) {
+        const d = dq.shift()
+        inFlight = d
+        delegating.set(true)
+        try { await runDelegation(d) }
+        catch (e) { addLog(`delegation failed: ${e?.message || e}`) }
+        finally { inFlight = null; delegating.set(false) }
+      }
+    } finally { pumping = false }
+  }
 
   function dispatchDelegations(list) {
-    for (const d of list || []) {
-      if (inFlight || !d?.id) continue
-      void handleDelegation(d)
-    }
+    for (const d of list || []) if (d?.id) dq.push(d)
+    if (dq.length) void pump()
   }
 
 
@@ -400,7 +531,7 @@ function createLive(ctx) {
     pollTimer = setInterval(async () => {
       if (stopped) return
       try {
-        const p = await ctx.rest(`/poll?in_offset=${off.i}&out_offset=${off.o}&a_offset=${off.a}&d_offset=${off.d}`)
+        const p = await ctx.rest(`/poll?in_offset=${off.i}&out_offset=${off.o}&a_offset=${off.a}&d_offset=${off.d}&r_offset=${off.r}`)
         if (p.usage && p.usage.totalTokenCount != null) {
           const t = p.usage.totalTokenCount
           usage.set(t >= 1000 ? `${(t / 1000).toFixed(1)}k` : String(t))
@@ -409,6 +540,7 @@ function createLive(ctx) {
         off.o = p.out_total ?? off.o
         off.a = p.a_total ?? off.a
         off.d = p.d_total ?? off.d
+        off.r = p.r_total ?? off.r
         if (p.error) { message.set(p.error); addLog(`error: ${p.error}`) }
         // Display sync: the official settings store is the single source of
         // truth (Settings → Plugins form OR this picker can change it).
@@ -425,8 +557,10 @@ function createLive(ctx) {
         if (barged) { lastInterrupted = p.interrupted; flushPlayback() }
         for (const t of p.input) transcript.set([...transcript.get().slice(-80), t === '—' ? { role: 'sep', text: '' } : { role: 'you', text: t }])
         for (const t of p.output) transcript.set([...transcript.get().slice(-80), { role: 'gemini', text: t }])
+        if (p.a_total && !audioFirstLogged) { audioFirstLogged = true; addLog(`audio: first chunk received (${p.a_total})`) }
         if (!barged) for (const a of p.audio) playPcm24k(a)
         if (p.delegations?.length && !inFlight) dispatchDelegations(p.delegations)
+        for (const r of p.recalls || []) if (r?.id) void handleRecall(r)
         if (p.session !== 'live' && !stopped) {
           // upstream dropped — surface honestly, keep UI state
           addLog('upstream session closed')
@@ -467,7 +601,9 @@ function createLive(ctx) {
     playHead = 0
     usage.set('')
     transcript.set([])
-    off = { i: 0, o: 0, a: 0, d: 0 }
+    off = { i: 0, o: 0, a: 0, d: 0, r: 0 }
+    micFirstLogged = false
+    audioFirstLogged = false
     try {
       playCtx = new AudioContext({ sampleRate: 24000 })
       outAnalyser = playCtx.createAnalyser()
@@ -507,6 +643,7 @@ function createLive(ctx) {
             addLog('barge-in: voice over playback — queue cut')
           }
         } else bargeHits = 0
+        if (!micFirstLogged) { micFirstLogged = true; addLog('mic: first chunk sent') }
         const b64 = b64FromInt16(pcm)
         // Serialize uploads to preserve order; drop backlog if we fall behind.
         micQueue = micQueue.then(() => stopped
@@ -517,8 +654,8 @@ function createLive(ctx) {
       src.connect(processor)
       processor.connect(srcCtx.destination) // keeps the node pumping
 
-      addLog('POST /start — dialing Gemini…')
-      const body = { resume: true }   // the model comes from the plugin settings
+      addLog('POST /start — dialing the voice provider…')
+      const body = { resume: true, session_context: await sessionContext() }   // model + voice come from settings
       const r = await ctx.rest('/start', { method: 'POST', timeoutMs: 30000, body })
       if (r?.ok) speakMode = r.speak === 'brief' ? 'brief' : 'full'
       if (!r.ok) {
@@ -727,6 +864,112 @@ function Minibar({ live }) {
 }
 
 
+// ---- Settings page (Sectioned layout) -------------------------------------
+// ONE page under Settings → Plugins. Reads/writes the plugin's own /settings
+// endpoints; the backend stores values in plugins.entries.livetalk.settings
+// through Hermes' official per-key writer. No config_schema form exists, so
+// there is no duplicate "Agent settings" entry. Field metadata (labels,
+// descriptions, choices) is served by the backend — single source of truth.
+// ElevenLabs shows as "soon" until its adapter ships; the backend sanitizes
+// provider to gemini, so we never offer a choice that would silently not apply.
+function LtSection({ title }) {
+  return jsx('div', { className: 'mt-6 mb-1 flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-(--ui-text-tertiary)', children: [
+    title,
+    jsx('span', { className: 'h-px flex-1 bg-(--ui-stroke-secondary)' }),
+  ] })
+}
+
+function LiveSettings({ ctx }) {
+  const [data, setData] = useState(null)   // { values, fields } from GET /settings
+  const [dirty, setDirty] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [err, setErr] = useState('')
+
+  const load = async () => {
+    try { setData(await ctx.rest('/settings')); setDirty(false); setErr('') }
+    catch (e) { setErr(String(e?.message || e)) }
+  }
+  useEffect(() => { void load() }, [])
+
+  const set = (k, v) => { setData(prev => ({ ...prev, values: { ...prev.values, [k]: v } })); setDirty(true) }
+  const save = async () => {
+    setSaving(true)
+    try {
+      const r = await ctx.rest('/settings', { method: 'POST', body: { values: data.values } })
+      if (!r?.ok) throw new Error(r?.error || 'save rejected')
+      setData(prev => ({ ...prev, values: r.values }))
+      setDirty(false)
+      host.notify({ kind: 'info', message: 'Livetalk settings saved' })
+    } catch (e) {
+      host.notify({ kind: 'error', message: 'Livetalk save failed: ' + String(e?.message || e) })
+    }
+    setSaving(false)
+  }
+
+  if (err) return jsxs('div', { className: 'p-4 text-sm text-(--ui-text-secondary)', children: [
+    'Could not load settings: ' + err,
+    jsx('div', { className: 'mt-3', children: jsx(Button, { variant: 'outline', size: 'sm', onClick: () => { setErr(''); void load() }, children: 'Retry' }) }),
+  ] })
+  if (!data) return jsx('div', { className: 'p-4 text-sm text-(--ui-text-tertiary)', children: 'Loading settings…' })
+
+  const { values, fields } = data
+  const provider = values.provider === 'elevenlabs' ? 'elevenlabs' : 'gemini'
+  const enumRow = k => fields[k] && jsx(ListRow, { title: fields[k].label, description: fields[k].description, action:
+    jsx(Select, { value: String(values[k] ?? ''), onValueChange: v => set(k, v), children: [
+      jsx(SelectTrigger, { className: 'w-60', children: jsx(SelectValue, {}) }),
+      jsx(SelectContent, { children: (fields[k].options || (fields[k].choices ?? []).map(c => ({ value: c, label: c })))
+        .map(o => jsx(SelectItem, { value: o.value, children: o.label }, o.value)) }),
+    ] }) }, k)
+  const toggleRow = k => fields[k] && jsx(ToggleRow, { label: fields[k].label, description: fields[k].description, checked: !!values[k], onChange: v => set(k, v) }, k)
+
+  const providers = [
+    { id: 'gemini', label: 'Gemini', grad: 'linear-gradient(135deg,#a5b4fc,#8f7bff)' },
+    { id: 'elevenlabs', label: 'ElevenLabs', grad: 'linear-gradient(135deg,#4fd1c5,#7dffb2)' },
+  ]
+
+  // Per-provider settings: each provider shows its OWN fields only (the
+  // backend tags every field with a scope); shared preferences stay visible.
+  const ownEnum = k => (fields[k] && fields[k].scope === provider) ? enumRow(k) : null
+  const ownToggle = k => (fields[k] && fields[k].scope === provider) ? toggleRow(k) : null
+
+  return jsxs('div', { className: 'flex flex-col px-1 pb-2', children: [
+    // Save bar pinned to the TOP (default-form placement)
+    jsxs('div', { className: 'flex items-center gap-3 pb-3', children: [
+      jsx('span', { className: 'flex-1 text-xs text-(--ui-text-tertiary)', children: dirty ? 'Unsaved changes' : 'All changes saved' }),
+      jsx(Button, { onClick: () => void save(), disabled: !dirty || saving, children: saving ? 'Saving…' : 'Save settings' }),
+    ] }),
+    // Provider switch — switching swaps the fields below and persists provider
+    jsx('div', { className: 'flex gap-2', children: providers.map(p => {
+      const on = provider === p.id
+      return jsx('button', { type: 'button', onClick: () => set('provider', p.id),
+        className: 'flex flex-1 items-center justify-center gap-2 rounded-lg border border-(--ui-stroke-secondary) px-3 py-2.5 text-sm transition-colors ' +
+          (on ? 'bg-(--ui-bg-tertiary) font-semibold text-(--ui-text-primary)'
+              : 'font-medium text-(--ui-text-tertiary) opacity-70 hover:opacity-100'),
+        children: [
+          jsx('span', { className: 'h-2 w-2 rounded-full', style: { background: p.grad } }),
+          p.label,
+        ] }, p.id)
+    }) }),
+    jsx(LtSection, { title: 'Model & Voice' }),
+    ownEnum('live_model'),
+    ownEnum('voice'),
+    ownEnum('elevenlabs_model'),
+    ownEnum('elevenlabs_voice'),
+    jsx(LtSection, { title: 'Language' }),
+    ownEnum('primary_language'),
+    ownEnum('secondary_language'),
+    ownEnum('elevenlabs_language'),
+    jsx(LtSection, { title: 'Behavior' }),
+    ownToggle('smart_transcription'),
+    fields.spoken_answers && jsx(ListRow, { title: fields.spoken_answers.label, description: fields.spoken_answers.description, action:
+      jsx(SegmentedControl, { value: values.spoken_answers || 'full', onChange: v => set('spoken_answers', v), options: [{ id: 'full', label: 'Full' }, { id: 'brief', label: 'Brief' }] }) }, 'spoken_answers'),
+    jsx(LtSection, { title: 'Display' }),
+    toggleRow('show_transcript'),
+    toggleRow('show_log'),
+  ] })
+}
+
+
 export default {
   id: ID,
   name: 'Livetalk',
@@ -745,6 +988,12 @@ export default {
     // Lives in the composer's action row (beside the mic) — the voice control
     // belongs with the voice input; the popover opens above the composer.
     ctx.register({ id: 'minibar', area: COMPOSER_AREAS.actions, order: 10, render: () => jsx(Minibar, { live }) })
+    // Sectioned settings page (Settings → Plugins). Older hosts get the same
+    // page via the settings.plugins area; the config_schema form stays as the
+    // "Agent settings" sub-page / fallback either way.
+    const page = { id: 'settings', title: 'Livetalk', icon: 'mic', order: 0, render: () => jsx(LiveSettings, { ctx }) }
+    if (ctx.registerSettingsPage) ctx.registerSettingsPage(page)
+    else ctx.register({ id: 'settings', area: 'settings.plugins', title: 'Livetalk', render: page.render, data: { icon: 'mic' } })
 
 
   }

@@ -3,3 +3,4 @@ __pycache__/
 .resume.json
 memory.json
 .DS_Store
+.hermes-catalog.json

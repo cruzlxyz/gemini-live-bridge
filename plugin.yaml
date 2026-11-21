@@ -1,6 +1,6 @@
 name: livetalk
 label: Livetalk
-version: 2.0.0
+version: 2.1.0
 description: "Realtime duplex voice chat with your Hermes agent — Gemini Live today, more voice providers tomorrow. A composer minibar; talk to your agent hands-free."
 manifest_version: 1
 kind: backend
@@ -11,57 +11,5 @@ capabilities: []
 requires_hermes: ">=0.22.0"
 requires_env:
   - GOOGLE_API_KEY
-config_schema:
-  provider:
-    type: str
-    choices: [gemini]
-    default: gemini
-    label: Provider
-    description: "The voice provider for the live session. Currently Gemini (Google AI Studio); more providers may be added later."
-  live_model:
-    type: str
-    choices: [gemini-3.8-live, gemini-3.8-live-extended-thinking, gemini-2.5-flash-native-audio-latest, gemini-2.5-flash-native-audio-preview-12-2025, gemini-2.5-flash-native-audio-preview-09-2025, gemini-3.1-flash-live-preview]
-    default: gemini-3.8-live
-    label: Live model
-    description: "Default Gemini Live model. The composer picker can override it per session. Note: extended-thinking variants chat deeply but cannot delegate (the API never emits their tool calls)."
-  primary_language:
-    type: str
-    choices: [id-ID, en-US, en-GB, en-IN, jv-ID, ms-MY, ar-EG, af-ZA, am-ET, hy-AM, as-IN, az-AZ, be-BY, bn-BD, bn-IN, bs-BA, bg-BG, rup-BG, my-MM, yue-Hant-HK, ca-ES, ceb, km-KH, hr-HR, cs-CZ, da-DK, nl-NL, et-EE, fa-IR, fil-PH, fi-FI, fr-FR, gl-ES, ka-GE, de-DE, el-GR, gu-IN, ha-NG, he-IL, hi-IN, hu-HU, is-IS, it-IT, ja-JP, kea-CV, kn-IN, kk-KZ, ko-KR, ky-KG, lv-LV, ln-CD, lt-LT, mk-MK, ml-IN, mt-MT, cmn-Hans-CN, mr-IN, mn-MN, ne-NP, nb-NO, or-IN, pl-PL, pt-BR, pt-PT, pa-IN, pa-Guru-IN, ro-RO, ru-RU, sr-RS, sd-Arab-IN, sk-SK, sl-SI, es-419, es-US, sw-KE, sv-SE, tg-TJ, te-IN, th-TH, tr-TR, uk-UA, uz-UZ, vi-VN]
-    default: id-ID
-    label: Primary language
-    description: "Language you speak most — the transcription hint reduces wrong-language detection on short prompts."
-  secondary_language:
-    type: str
-    choices: [none, id-ID, en-US, en-GB, en-IN, jv-ID, ms-MY, ar-EG, af-ZA, am-ET, hy-AM, as-IN, az-AZ, be-BY, bn-BD, bn-IN, bs-BA, bg-BG, rup-BG, my-MM, yue-Hant-HK, ca-ES, ceb, km-KH, hr-HR, cs-CZ, da-DK, nl-NL, et-EE, fa-IR, fil-PH, fi-FI, fr-FR, gl-ES, ka-GE, de-DE, el-GR, gu-IN, ha-NG, he-IL, hi-IN, hu-HU, is-IS, it-IT, ja-JP, kea-CV, kn-IN, kk-KZ, ko-KR, ky-KG, lv-LV, ln-CD, lt-LT, mk-MK, ml-IN, mt-MT, cmn-Hans-CN, mr-IN, mn-MN, ne-NP, nb-NO, or-IN, pl-PL, pt-BR, pt-PT, pa-IN, pa-Guru-IN, ro-RO, ru-RU, sr-RS, sd-Arab-IN, sk-SK, sl-SI, es-419, es-US, sw-KE, sv-SE, tg-TJ, te-IN, th-TH, tr-TR, uk-UA, uz-UZ, vi-VN]
-    default: en-US
-    label: Second language
-    description: "Optional second hint — biases recognition when you code-switch mid-sentence."
-  smart_transcription:
-    type: bool
-    default: true
-    label: Smart transcription
-    description: "Removes filler words, fixes false starts, and formats the transcript (SMART vs VERBATIM)."
-  voice:
-    type: str
-    choices: [Puck, Aoede, Charon, Kore, Fenrir, Leda, Orus, Zephyr, Autonoe, Umbriel, Erinome, Laomedeia, Schedar, Achird, Sadachbia, Enceladus, Algieba, Algenib, Achernar, Gacrux, Zubenelgenubi, Sadaltager, Callirrhoe, Iapetus, Despina, Rasalgethi, Alnilam, Pulcherrima, Vindemiatrix, Sulafat]
-    default: Puck
-    label: Voice
-    description: "Gemini's speaking voice (30 HD prebuilt voices). Puck=upbeat M, Aoede=breezy F, Charon=informative M, Kore=firm F, Fenrir=excitable M, Leda=youthful F, Zephyr=bright F, Sulafat=warm F, Gacrux=mature F, Algenib=gravelly M."
-  spoken_answers:
-    type: str
-    choices: [full, brief]
-    default: full
-    label: Spoken answers
-    description: "How much of the agent's answer gets spoken when a delegation finishes: full keeps every key fact, brief compresses to 2-4 sentences."
-  show_transcript:
-    type: bool
-    default: true
-    label: Show transcript
-    description: "Display the you/gemini conversation text inside the mini-bar popover."
-  show_log:
-    type: bool
-    default: true
-    label: Show diagnostic log
-    description: "Display the timestamped event log (POST /start, LIVE, interrupted…) inside the popover."
 python_dependencies:
   - websockets>=11.0,<16.0
