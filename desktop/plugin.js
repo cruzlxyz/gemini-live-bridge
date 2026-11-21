@@ -9,7 +9,7 @@
  */
 
 import { atom, Button, COMPOSER_AREAS, host, Popover, PopoverContent, PopoverTrigger, Tip, useValue } from '@hermes/plugin-sdk'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { jsx, jsxs } from 'react/jsx-runtime'
 
 const ID = 'livetalk'
@@ -160,6 +160,40 @@ const CSS = `
 /* composer action-row fit: the blob chip matches the row's height */
 .gemini-live-bar{height:auto}
 .gemini-live-panel{width:320px}
+
+/* ---- soft chat-bubble transcript (minibar popover) ----
+   Smoothness contract: bubbles and word spans carry STABLE keys, so React
+   keeps their DOM nodes across polls — entrance/word animations run once on
+   mount and are never restarted by streaming updates. All easing is the soft
+   cubic-bezier(.22,.61,.36,1); no hard blinks, no snaps. */
+.glb-tx{display:flex;flex-direction:column;gap:10px;max-height:150px;overflow-y:auto;padding:6px 2px 2px;scroll-behavior:smooth;scrollbar-width:none}
+.glb-tx::-webkit-scrollbar{display:none}
+.glb-tx-col{display:flex;flex-direction:column;min-width:0}
+.glb-tx-col.r{align-items:flex-end}
+.glb-tx-who{font-size:9px;letter-spacing:.13em;text-transform:uppercase;color:var(--ui-text-quaternary,#5c5c72);margin-bottom:4px;padding:0 4px;display:flex;align-items:center}
+.glb-tx-row{display:flex;gap:7px;align-items:flex-end}
+.glb-tx-mini{flex:none;width:20px;height:20px;background:linear-gradient(135deg,#a5b4fc,#8f7bff);border-radius:46% 54% 52% 48%/48% 46% 54% 52%;position:relative;opacity:.9;animation:glb-tx-morph 11s ease-in-out infinite}
+.glb-tx-mini::before,.glb-tx-mini::after{content:"";position:absolute;top:8px;width:2.5px;height:3.5px;border-radius:50%;background:#14141c}
+.glb-tx-mini::before{left:5.5px}
+.glb-tx-mini::after{right:5.5px}
+@keyframes glb-tx-morph{0%,100%{border-radius:46% 54% 52% 48%/48% 46% 54% 52%}50%{border-radius:52% 48% 46% 54%/54% 44% 56% 46%}}
+.glb-tx-bub{max-width:85%;padding:9px 13px;border-radius:16px;line-height:1.55;font-size:12.5px;width:fit-content;word-break:break-word;overflow-wrap:anywhere}
+.glb-tx-you{background:rgba(143,123,255,.11);color:#e9e5fc;border-bottom-right-radius:7px}
+.glb-tx-gem{background:rgba(255,255,255,.045);color:var(--ui-text-primary,#e8e8f0);border-bottom-left-radius:7px;transition:box-shadow 1.2s cubic-bezier(.22,.61,.36,1),background 1.2s cubic-bezier(.22,.61,.36,1)}
+.glb-tx-gem.live{background:rgba(255,255,255,.055);animation:glb-tx-breathe 3.6s ease-in-out infinite}
+@keyframes glb-tx-breathe{0%,100%{box-shadow:0 0 16px rgba(143,123,255,.05)}50%{box-shadow:0 0 30px rgba(143,123,255,.12)}}
+.glb-tx-enter{animation:glb-tx-enter .7s cubic-bezier(.22,.61,.36,1) both}
+@keyframes glb-tx-enter{from{opacity:0;transform:translateY(9px) scale(.98)}to{opacity:1;transform:none}}
+.glb-tx-w{animation:glb-tx-wfade .5s cubic-bezier(.22,.61,.36,1) both}
+@keyframes glb-tx-wfade{from{opacity:0}to{opacity:1}}
+.glb-tx-caret{display:inline-block;width:2px;height:1em;background:#4fd1c5;vertical-align:-2px;margin-left:3px;border-radius:2px;animation:glb-tx-pulse 1.5s ease-in-out infinite}
+@keyframes glb-tx-pulse{0%,100%{opacity:.85}50%{opacity:.12}}
+.glb-tx-eq{display:inline-flex;gap:2px;align-items:flex-end;height:8px;margin-left:6px}
+.glb-tx-eq i{width:2px;background:#7dffb2;border-radius:2px;animation:glb-tx-eq 1s ease-in-out infinite alternate;opacity:.85}
+.glb-tx-eq i:nth-child(1){height:3px}
+.glb-tx-eq i:nth-child(2){height:7px;animation-delay:.25s}
+.glb-tx-eq i:nth-child(3){height:5px;animation-delay:.5s}
+@keyframes glb-tx-eq{from{transform:scaleY(.45)}to{transform:scaleY(1)}}
 `
 
 function b64FromInt16(pcm) {
@@ -540,6 +574,59 @@ function createLive(ctx) {
 
 
 
+// Soft chat-bubble transcript. Stable keys (turn index in the merged list,
+// word index inside a turn) let React reuse DOM nodes across polls, so the
+// entrance + word-fade animations run exactly once per mount — streaming
+// updates only mutate text, never restart animations.
+// Scroll is STICKY-BOTTOM: new text auto-follows only while the user is at
+// the bottom; scrolling up to read pins the position — polls never yank it
+// back down. Scrolling to the bottom re-arms the follow.
+function TxBubbles({ tail, speaking }) {
+  const ref = useRef(null)
+  const pinned = useRef(true)
+  const lastLen = useRef(-1)
+  const len = tail.reduce((a, r) => a + r.text.length, 0)
+  useEffect(() => {
+    const el = ref.current
+    if (!el) return
+    if (len < lastLen.current) pinned.current = true // transcript reset (new session)
+    if (len !== lastLen.current) {
+      lastLen.current = len
+      if (pinned.current) el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' })
+    }
+  })
+  const onScroll = () => {
+    const el = ref.current
+    if (el) pinned.current = el.scrollHeight - el.scrollTop - el.clientHeight < 28
+  }
+  return jsx('div', { className: 'glb-tx', ref, onScroll, role: 'status', 'aria-label': 'transcript', children:
+    tail.map((row, i) => {
+      const isLast = i === tail.length - 1
+      const liveGem = row.role === 'gemini' && isLast && speaking
+      // split AFTER each space so every chunk keeps its trailing space; the
+      // in-flight last chunk updates in place (same key → no remount/flicker)
+      const words = row.text.split(/(?<= )/).map((c, wi) => jsx('span', { className: 'glb-tx-w', children: c }, wi))
+      if (liveGem) words.push(jsx('span', { className: 'glb-tx-caret', 'aria-hidden': true }, 'caret'))
+      const bub = jsx('div', { className: 'glb-tx-bub ' + (row.role === 'you' ? 'glb-tx-you' : 'glb-tx-gem' + (liveGem ? ' live' : '')), children: words })
+      if (row.role === 'you') {
+        return jsx('div', { className: 'glb-tx-col r glb-tx-enter', children: bub }, row.k)
+      }
+      // no speaker text for Gemini — just the avatar; the equalizer row keeps
+      // a constant height (opacity fade, no layout shift) as the speaking cue
+      return jsxs('div', { className: 'glb-tx-row glb-tx-enter', children: [
+        jsx('span', { className: 'glb-tx-mini', 'aria-hidden': true }),
+        jsxs('div', { className: 'glb-tx-col', children: [
+          jsx('div', { className: 'glb-tx-who', children:
+            jsxs('span', { className: 'glb-tx-eq', 'aria-hidden': true, style: { opacity: liveGem ? 1 : 0, transition: 'opacity .8s cubic-bezier(.22,.61,.36,1)' }, children: [jsx('i', {}, 0), jsx('i', {}, 1), jsx('i', {}, 2)] })
+          }),
+          bub,
+        ] }),
+      ] }, row.k)
+    })
+  })
+}
+
+
 function Minibar({ live }) {
   const outLv = useValue(live.outLevel)
   const [blink, setBlink] = useState(false)
@@ -579,7 +666,9 @@ function Minibar({ live }) {
     if (last && last.role === row.role) last.text += row.text
     else merged.push({ role: row.role, text: row.text })
   }
-  const tail = merged.filter(r => r.role !== 'sep').slice(-2)
+  // keep the absolute merged index as a stable React key — tail position
+  // shifts as turns arrive, but the key must not (or bubbles would remount)
+  const tail = merged.map((r, k) => ({ ...r, k })).filter(r => r.role !== 'sep').slice(-2)
   return jsxs('div', { className: 'gemini-live-bar', 'data-gemini-live-status': status, children: [
     jsx(Popover, {
       onOpenChange: open => { if (open) void live.fetchModels(); if (!open && status === 'idle') live.stop() },
@@ -624,9 +713,9 @@ function Minibar({ live }) {
               jsx('span', { className: 'gemini-live-usage', title: 'Session tokens (free-tier meter)', children: usage ? `${usage} tok` : '' }),
               jsx('span', { className: 'gemini-live-transport-space' })
             ] }),
-            (message || showTranscript) && jsx('div', { className: 'gemini-live-error', role: 'status', children:
-              message || (tail.length ? tail.map((row, i) => jsxs('div', { children: [row.role === 'you' ? 'you: ' : row.role === 'gemini' ? 'gemini: ' : '', row.text] }, i)) : '')
-            }),
+            (message || (showTranscript && tail.length > 0)) && (message
+              ? jsx('div', { className: 'gemini-live-error', role: 'status', children: message })
+              : jsx(TxBubbles, { tail, speaking })),
             showLog && jsx('div', { className: 'gemini-live-log', 'aria-label': 'diagnostics', children:
               logs.map((row, i) => jsxs('div', { children: [row.t, '  ', row.msg] }, i))
             })
